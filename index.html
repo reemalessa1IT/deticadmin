@@ -109,14 +109,35 @@ const fmt=t=>new Date(t).toLocaleString('ar-SA',{day:'numeric',month:'short',hou
 let key=store.get('ffk')||'',last=null,armed=null;
 
 async function rpc(name){
-  const r=await fetch(SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/rpc/'+name,{
-    method:'POST',
-    headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json'},
-    body:JSON.stringify({k:key})
-  });
+  let r;
+  try{
+    r=await fetch(SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/rpc/'+name,{
+      method:'POST',
+      headers:{'apikey':SUPABASE_KEY,'Content-Type':'application/json'},
+      body:JSON.stringify({k:key})
+    });
+  }catch(err){const x=new Error('net');x.kind='net';throw x}
   const txt=await r.text();
-  if(!r.ok){const e=new Error(txt);e.bad=/bad key/i.test(txt);throw e}
+  if(!r.ok){const e=new Error(txt);e.status=r.status;e.body=txt;e.bad=/bad key/i.test(txt);throw e}
   return JSON.parse(txt);
+}
+function explain(e){
+  const b=e.body||'';
+  if(e.kind==='net')return 'لا يمكن الوصول إلى الرابط. تأكد أن SUPABASE_URL مكتوب بشكل صحيح (https://xxxx.supabase.co) وأن المشروع ليس متوقفاً، وأنك حفظت الملف ورفعته من جديد.';
+  if(/PGRST202|Could not find the function|42883/i.test(b))return 'قاعدة البيانات لا تحتوي الدوال بعد: شغّل كود SQL في SQL Editor حتى تظهر Success، ثم اضغط تحديث.';
+  if(e.status===401||/Invalid API key|No API key|JWT/i.test(b))return 'المفتاح SUPABASE_KEY غير صحيح. استخدم Publishable أو anon وانسخه كاملاً بدون قص.';
+  if(e.status===404)return 'الرابط غير صحيح (404). تأكد من SUPABASE_URL.';
+  return 'خطأ '+e.status+': '+b.slice(0,160);
+}
+function cfgProblems(){
+  const p=[];
+  if(!SUPABASE_URL||!SUPABASE_KEY)p.push('ضع SUPABASE_URL و SUPABASE_KEY في أعلى ملف admin.html ثم احفظه وارفعه من جديد.');
+  else{
+    if(!/^https:\/\/[a-z0-9]+\.supabase\.co\/?$/i.test(SUPABASE_URL))p.push('SUPABASE_URL يجب أن يكون بالشكل https://xxxx.supabase.co بدون أي إضافات أو مسافات.');
+    if(/^sb_secret_/.test(SUPABASE_KEY))p.push('هذا مفتاح سري (secret)! استخدم Publishable أو anon فقط، وغيّره فوراً من Supabase.');
+    if(!/^(sb_publishable_|eyJ)/.test(SUPABASE_KEY))p.push('SUPABASE_KEY لا يبدو مفتاحاً صحيحاً: لازم يبدأ بـ sb_publishable_ أو eyJ.');
+  }
+  return p;
 }
 const setMsg=t=>{$('#msg').textContent=t||''};
 async function load(name){
@@ -124,7 +145,7 @@ async function load(name){
   try{last=await rpc(name);render(last)}
   catch(e){
     if(e.bad){setMsg('الرمز السري غير صحيح.');logout(false)}
-    else setMsg('تعذّر الاتصال بقاعدة البيانات. تأكد من بيانات Supabase ومن أن المشروع غير متوقف.');
+    else setMsg(explain(e));
   }
 }
 function render(d){
@@ -194,7 +215,8 @@ $('#bStart').onclick=e=>{
   }
   clearTimeout(armed);armed=null;load('admin_start');
 };
-if(!SUPABASE_URL||!SUPABASE_KEY)$('#cfgWarn').classList.remove('hide');
+const probs=cfgProblems();
+if(probs.length){const w=$('#cfgWarn');w.textContent=probs.join(' / ');w.classList.remove('hide')}
 else if(key)enter();
 </script>
 </body>
